@@ -1,0 +1,61 @@
+// Minimal WebSocket signaling server for LoveLink.
+// It relays call setup messages only; voice audio travels over WebRTC peer-to-peer.
+const http = require("http");
+const WebSocket = require("ws");
+const path = require("path");
+const fs = require("fs");
+
+const PORT = process.env.PORT || 3000;
+const root = __dirname;
+const mime = { ".html":"text/html; charset=utf-8", ".css":"text/css; charset=utf-8", ".js":"text/javascript; charset=utf-8", ".json":"application/json" };
+const server = http.createServer((req, res) => {
+  let pathname = decodeURIComponent((req.url || "/").split("?")[0]);
+  if (pathname === "/") pathname = "/index.html";
+  const file = path.join(root, path.normalize(pathname).replace(/^(\.\.[/\\])+/, ""));
+  if (!file.startsWith(root)) { res.writeHead(403); return res.end("Forbidden"); }
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404); return res.end("Not found"); }
+    res.writeHead(200, { "Content-Type": mime[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-cache" });
+    res.end(data);
+  });
+});
+const wss = new WebSocket.Server({ server, maxPayload: 32 * 1024 });
+const rooms = new Map();
+
+function send(ws, data) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+}
+function leave(ws) {
+  const room = ws.room;
+  if (!room || !rooms.has(room)) return;
+  const members = rooms.get(room);
+  members.delete(ws);
+  for (const peer of members) send(peer, { type: "peer-left" });
+  if (members.size === 0) rooms.delete(room);
+  ws.room = null;
+}
+wss.on("connection", ws => {
+  ws.on("message", raw => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.type === "join") {
+      const room = String(msg.room || "").toUpperCase();
+      if (!/^[A-Z0-9]{6}$/.test(room)) return send(ws, {type:"error", message:"Invalid room"});
+      leave(ws);
+      const members = rooms.get(room) || new Set();
+      if (members.size >= 2) return send(ws, {type:"error", message:"Room is full"});
+      members.add(ws); rooms.set(room, members); ws.room = room;
+      if (members.size === 2) for (const peer of members) if (peer !== ws) send(peer, {type:"peer-joined"});
+      if (members.size === 2) send(ws, {type:"peer-joined"});
+      return;
+    }
+    if (!ws.room || msg.room !== ws.room) return;
+    if (msg.type === "leave") return leave(ws);
+    const allowed = ["offer", "answer", "ice", "game"];
+    if (!allowed.includes(msg.type)) return;
+    for (const peer of rooms.get(ws.room) || []) if (peer !== ws) send(peer, msg);
+  });
+  ws.on("close", () => leave(ws));
+  ws.on("error", () => leave(ws));
+});
+server.listen(PORT, () => console.log(`LoveLink running at http://localhost:${PORT}`));

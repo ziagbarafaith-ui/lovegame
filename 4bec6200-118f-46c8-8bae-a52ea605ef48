@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#171225">
+  <meta name="description" content="LoveLink — play together, even when you're apart.">
+  <title>LoveLink — Play Together</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#"><span class="brand-heart">♥</span> LoveLink</a>
+      <span class="top-note">A little closer, wherever you are.</span>
+    </header>
+
+    <section id="welcome" class="welcome panel">
+      <div class="eyebrow">TWO HEARTS · ONE GAME</div>
+      <h1>Distance means<br><span>nothing here.</span></h1>
+      <p class="intro">Create a private room, invite your favourite person, and play while you talk.</p>
+      <div class="join-grid">
+        <button id="createRoom" class="btn btn-primary">Create a room <span>↗</span></button>
+        <div class="join-box">
+          <input id="roomInput" maxlength="6" placeholder="Enter room code" autocomplete="off" aria-label="Room code">
+          <button id="joinRoom" class="btn btn-secondary">Join room</button>
+        </div>
+      </div>
+      <p id="welcomeStatus" class="status" aria-live="polite">Both players need an internet connection and microphone permission for voice chat.</p>
+      <div class="feature-row">
+        <span>♡ Private rooms</span><span>♫ Live voice</span><span>✦ No account needed</span>
+      </div>
+    </section>
+
+    <section id="game" class="game hidden">
+      <div class="roombar panel">
+        <div><span class="eyebrow">YOUR PRIVATE ROOM</span><strong id="roomCode">------</strong></div>
+        <button id="copyCode" class="copy-btn">Copy invite code</button>
+      </div>
+
+      <div class="game-layout">
+        <section class="play-area panel">
+          <div class="game-heading">
+            <div><div class="eyebrow">MAKE A MOMENT</div><h2>Choose your game</h2></div>
+            <span class="live-pill"><i></i> <span id="connectionLabel">Waiting for player</span></span>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Game types">
+            <button class="tab active" data-category="truth">Truth or Dare</button>
+            <button class="tab" data-category="know">Know Me</button>
+            <button class="tab" data-category="would">Would You Rather</button>
+            <button class="tab" data-category="likely">Most Likely</button>
+          </div>
+          <article class="prompt-card">
+            <div class="card-top"><span id="categoryLabel">TRUTH OR DARE</span><span>♥</span></div>
+            <div id="prompt" class="prompt">Your next favourite memory starts with one question.</div>
+            <div id="turnLabel" class="turn-label">Choose a game to begin</div>
+          </article>
+          <div class="game-actions">
+            <button id="nextPrompt" class="btn btn-primary" disabled>Give me a question <span>→</span></button>
+            <button id="skipPrompt" class="btn btn-quiet" disabled>Skip</button>
+          </div>
+          <p class="small-note">Both players see the same card. Take turns answering out loud.</p>
+        </section>
+
+        <aside class="side-area">
+          <section class="voice-card panel">
+            <div class="eyebrow">YOUR VOICE CONNECTION</div>
+            <div class="avatars">
+              <div class="person"><div class="avatar">☺</div><strong>You</strong><small id="myMicState">Mic off</small></div>
+              <div class="wave">〰</div>
+              <div class="person"><div class="avatar partner">♡</div><strong>Your person</strong><small id="partnerState">Not connected</small></div>
+            </div>
+            <audio id="remoteAudio" autoplay playsinline></audio>
+            <div class="voice-controls">
+              <button id="micButton" class="control-btn" disabled><span>🎙</span> Turn mic on</button>
+              <button id="hangupButton" class="control-btn danger" disabled><span>×</span> Leave call</button>
+            </div>
+            <p id="voiceStatus" class="status">Join the room together to start voice chat.</p>
+          </section>
+          <section class="invite-card">
+            <div class="invite-icon">💌</div>
+            <div><strong>Bring your person here</strong><p>Share your 6-character room code. They can join from anywhere.</p></div>
+          </section>
+          <button id="leaveRoom" class="leave-btn">Leave room</button>
+        </aside>
+      </div>
+    </section>
+    <footer>Made for two. Built for the moments in between. <span>♥</span></footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

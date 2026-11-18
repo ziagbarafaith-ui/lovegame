@@ -1,0 +1,35 @@
+# LoveLink ❤️
+
+A lightweight two-player couples' game with live voice chat.
+
+## Requirements
+- Node.js 18+
+- A modern browser
+- Microphone permission
+- HTTPS in production (required by browsers for microphone access; localhost is allowed for development)
+
+## Run locally
+1. Open this folder in VS Code.
+2. Open the terminal in this folder.
+3. Run `npm install`.
+4. Run `npm start`.
+5. Open `http://localhost:3000` in your browser.
+6. Open the same address on a second device on your network, or deploy it online.
+7. One person creates a room and shares the six-character code. The other joins.
+8. Both players allow microphone access and press **Turn mic on**.
+
+## How it works
+- HTML/CSS/vanilla JavaScript keep the frontend small and avoid a heavy framework.
+- WebSocket (`ws`) is used only for room presence, game prompts, and WebRTC signaling.
+- WebRTC carries live audio peer-to-peer when the network allows it.
+- A STUN server helps peers discover a direct route. Some restrictive mobile/carrier/Wi-Fi networks require a TURN relay server; configure your own TURN credentials in `app.js` for reliable calls across all networks.
+
+## Deployment notes
+Deploy the Node app to a host that supports persistent WebSocket connections and HTTPS. Both players must use the same deployed URL. Set the host's start command to `npm start`.
+
+## Current prototype limitations
+- Room codes are temporary and rooms disappear when both players leave.
+- The app supports two people per room.
+- The included STUN configuration is not enough for every network; TURN is recommended for production.
+- The "Truth or Dare" category currently contains conversation prompts rather than risky dares.
+- Add authentication, rate limiting, room expiration, and TURN credentials before a public launch.

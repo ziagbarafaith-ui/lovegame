@@ -1,0 +1,223 @@
+// LoveLink frontend: lightweight game UI + WebRTC audio + WebSocket signaling.
+const $ = (id) => document.getElementById(id);
+const state = { room: null, socket: null, pc: null, localStream: null, category: "truth", connected: false, isHost: false };
+const prompts = {
+  truth: [
+    "What was the first thing you noticed about me?",
+    "Which moment with me would you love to relive?",
+    "What little thing I do always makes you smile?",
+    "When do you feel closest to me, even from far away?",
+    "What is one adventure you want us to have together?",
+    "What song reminds you of us, and why?",
+    "What is something you have wanted to tell me but haven't?",
+    "Describe your perfect day together."
+  ],
+  know: [
+    "What is my comfort food?",
+    "What always cheers me up after a difficult day?",
+    "Am I more of a sunrise or sunset person?",
+    "What is one place I dream of visiting?",
+    "What is my biggest pet peeve?",
+    "What would my ideal weekend look like?",
+    "What is one thing I am really proud of?",
+    "Which three words best describe me?"
+  ],
+  would: [
+    "Would you rather take a surprise weekend trip or plan a dream holiday together?",
+    "Would you rather cook together or explore a new restaurant?",
+    "Would you rather relive our first meeting or see our future together?",
+    "Would you rather have a quiet night in or a spontaneous night out?",
+    "Would you rather exchange handwritten letters or voice notes for a week?",
+    "Would you rather live by the beach or in a lively city together?"
+  ],
+  likely: [
+    "Who is more likely to fall asleep during a movie?",
+    "Who is more likely to plan a surprise date?",
+    "Who is more likely to get lost even with directions?",
+    "Who is more likely to laugh at the wrong moment?",
+    "Who is more likely to remember tiny details?",
+    "Who is more likely to start a dance party at home?"
+  ]
+};
+let lastPrompt = "";
+
+function setWelcomeStatus(message) { $("welcomeStatus").textContent = message; }
+function setVoiceStatus(message) { $("voiceStatus").textContent = message; }
+function setConnected(connected) {
+  state.connected = connected;
+  $("connectionLabel").textContent = connected ? "Both players are here" : "Waiting for player";
+  document.querySelector(".live-pill").classList.toggle("connected", connected);
+  $("partnerState").textContent = connected ? "In your room" : "Not connected";
+  $("nextPrompt").disabled = !connected;
+  $("skipPrompt").disabled = !connected;
+  $("micButton").disabled = !connected;
+  $("hangupButton").disabled = !connected;
+}
+function randomRoom() { return Math.random().toString(36).slice(2, 8).toUpperCase(); }
+
+function connectSocket() {
+  // Same-origin WebSocket: works when the app and signaling server are deployed together.
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(`${scheme}//${location.host}`);
+  state.socket = socket;
+  socket.addEventListener("open", () => {
+    socket.send(JSON.stringify({ type: "join", room: state.room }));
+    setVoiceStatus("Connected to room server. Waiting for your person…");
+  });
+  socket.addEventListener("message", async (event) => {
+    const msg = JSON.parse(event.data);
+    try {
+      if (msg.type === "peer-joined") {
+        setConnected(true);
+        setVoiceStatus("Your person joined. Turn on your microphone to talk.");
+        if (state.isHost) await startCall();
+      } else if (msg.type === "peer-left") {
+        setConnected(false);
+        setVoiceStatus("Your person left the room.");
+        closePeer();
+      } else if (msg.type === "offer") {
+        await ensurePeer();
+        await state.pc.setRemoteDescription(msg.offer);
+        const answer = await state.pc.createAnswer();
+        await state.pc.setLocalDescription(answer);
+        send({ type: "answer", answer });
+      } else if (msg.type === "answer" && state.pc) {
+        await state.pc.setRemoteDescription(msg.answer);
+      } else if (msg.type === "ice" && state.pc && msg.candidate) {
+        try { await state.pc.addIceCandidate(msg.candidate); } catch (e) { console.warn("ICE candidate skipped", e); }
+      } else if (msg.type === "game") {
+        showPrompt(msg.category, msg.prompt, msg.turn);
+      }
+    } catch (error) {
+      console.error(error);
+      setVoiceStatus("Connection issue. Please try leaving and rejoining the room.");
+    }
+  });
+  socket.addEventListener("close", () => {
+    setVoiceStatus("Room connection closed. Check your internet and rejoin.");
+    setConnected(false);
+  });
+  socket.addEventListener("error", () => setVoiceStatus("Could not reach the room server."));
+}
+function send(data) {
+  if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+    state.socket.send(JSON.stringify({ ...data, room: state.room }));
+  }
+}
+async function ensurePeer() {
+  if (state.pc) return;
+  // STUN helps peers discover a direct route. Some networks require a TURN relay for connectivity.
+  state.pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  state.pc.onicecandidate = (event) => { if (event.candidate) send({ type: "ice", candidate: event.candidate }); };
+  state.pc.ontrack = (event) => {
+    $("remoteAudio").srcObject = event.streams[0];
+    $("remoteAudio").play().catch(() => setVoiceStatus("Tap the page once to allow audio playback."));
+    setVoiceStatus("Voice connected. Enjoy your conversation ♥");
+  };
+  state.pc.onconnectionstatechange = () => {
+    if (state.pc && ["failed", "disconnected"].includes(state.pc.connectionState)) {
+      setVoiceStatus("Voice connection interrupted. Try reconnecting.");
+    }
+  };
+  if (state.localStream) state.localStream.getTracks().forEach(track => state.pc.addTrack(track, state.localStream));
+}
+async function startCall() {
+  await ensurePeer();
+  const offer = await state.pc.createOffer();
+  await state.pc.setLocalDescription(offer);
+  send({ type: "offer", offer });
+}
+async function toggleMic() {
+  if (!state.localStream) {
+    try {
+      state.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false
+      });
+      await ensurePeer();
+      // If the offer was already created, adding tracks requires renegotiation.
+      if (state.pc.signalingState === "stable" && state.isHost) await startCall();
+      $("micButton").innerHTML = "<span>🎙</span> Mute microphone";
+      $("myMicState").textContent = "Mic on";
+      setVoiceStatus("Microphone on. You can talk now.");
+    } catch (error) {
+      setVoiceStatus(error.name === "NotAllowedError" ? "Microphone permission was denied. Allow microphone access in your browser." : "Could not access your microphone. Check your device settings.");
+    }
+  } else {
+    const enabled = state.localStream.getAudioTracks().some(t => t.enabled);
+    state.localStream.getAudioTracks().forEach(track => track.enabled = !enabled);
+    $("micButton").innerHTML = enabled ? "<span>🎙</span> Unmute microphone" : "<span>🎙</span> Mute microphone";
+    $("myMicState").textContent = enabled ? "Mic muted" : "Mic on";
+  }
+}
+function closePeer() {
+  if (state.pc) { state.pc.close(); state.pc = null; }
+  $("remoteAudio").srcObject = null;
+}
+function stopMedia() {
+  if (state.localStream) state.localStream.getTracks().forEach(track => track.stop());
+  state.localStream = null;
+  $("myMicState").textContent = "Mic off";
+  $("micButton").innerHTML = "<span>🎙</span> Turn mic on";
+}
+function enterRoom(room, isHost) {
+  state.room = room;
+  state.isHost = isHost;
+  $("roomCode").textContent = room;
+  $("welcome").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  setConnected(false);
+  connectSocket();
+}
+function showPrompt(category, prompt, turn) {
+  state.category = category;
+  lastPrompt = prompt;
+  document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.category === category));
+  $("categoryLabel").textContent = ({truth:"TRUTH OR DARE",know:"HOW WELL DO YOU KNOW ME?",would:"WOULD YOU RATHER?",likely:"WHO IS MORE LIKELY?"})[category];
+  $("prompt").textContent = prompt;
+  $("turnLabel").textContent = turn || "Take turns answering out loud ♥";
+}
+function nextQuestion() {
+  const list = prompts[state.category];
+  let next = list[Math.floor(Math.random() * list.length)];
+  if (list.length > 1) while (next === lastPrompt) next = list[Math.floor(Math.random() * list.length)];
+  const turn = "Take turns answering out loud ♥";
+  showPrompt(state.category, next, turn);
+  send({ type: "game", category: state.category, prompt: next, turn });
+}
+
+$("createRoom").addEventListener("click", () => {
+  const room = randomRoom();
+  enterRoom(room, true);
+});
+$("joinRoom").addEventListener("click", () => {
+  const room = $("roomInput").value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(room)) return setWelcomeStatus("Please enter a valid 6-character room code.");
+  enterRoom(room, false);
+});
+$("roomInput").addEventListener("input", e => e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0,6));
+$("copyCode").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(state.room); $("copyCode").textContent = "Copied!"; }
+  catch { $("copyCode").textContent = `Code: ${state.room}`; }
+});
+document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+  state.category = tab.dataset.category;
+  $("categoryLabel").textContent = tab.textContent.toUpperCase();
+  $("prompt").textContent = "Ready for your next question?";
+  $("turnLabel").textContent = "Press the button when you're both ready.";
+}));
+$("nextPrompt").addEventListener("click", nextQuestion);
+$("skipPrompt").addEventListener("click", nextQuestion);
+$("micButton").addEventListener("click", toggleMic);
+$("hangupButton").addEventListener("click", () => {
+  closePeer(); stopMedia(); setVoiceStatus("You left the voice call.");
+});
+function leaveRoom() {
+  if (state.socket) { send({type:"leave"}); state.socket.close(); }
+  closePeer(); stopMedia(); state.room = null; state.socket = null;
+  $("game").classList.add("hidden"); $("welcome").classList.remove("hidden");
+  $("roomInput").value = ""; setWelcomeStatus("Create a room or enter your partner's code.");
+  setConnected(false);
+}
+$("leaveRoom").addEventListener("click", leaveRoom);
+window.addEventListener("beforeunload", () => { closePeer(); stopMedia(); });
